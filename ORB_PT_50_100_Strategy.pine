@@ -1,0 +1,163 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0
+// at https://mozilla.org/MPL/2.0/
+// © 2026
+
+//@version=5
+strategy(
+     title="ORB Breakout — PT 50% / 100%",
+     shorttitle="ORB PT 50/100",
+     overlay=true,
+     pyramiding=0,
+     process_orders_on_close=true,
+     calc_on_order_fills=true,
+     initial_capital=100000,
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=100,
+     commission_type=strategy.commission.percent,
+     commission_value=0.0,
+     slippage=0)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inputs
+// ─────────────────────────────────────────────────────────────────────────────
+
+orbSession       = input.session("0930-0945", "Opening range")
+tradingSession   = input.session("0945-1555", "Entry window")
+timeZone         = input.string("America/New_York", "Session timezone")
+weekdays         = input.string("23456", "Trading days", tooltip="Pine day numbers: 1=Sunday, 2=Monday, ..., 7=Saturday")
+oneTradePerDay   = input.bool(true, "Maximum one trade per day")
+moveStopToBE     = input.bool(true, "Move runner stop to breakeven after TP1")
+closeAtEnd       = input.bool(true, "Close open position when entry window ends")
+showEntryMarkers = input.bool(true, "Show entry markers")
+
+orbTime     = time(timeframe.period, orbSession + ":" + weekdays, timeZone)
+tradeTime   = time(timeframe.period, tradingSession + ":" + weekdays, timeZone)
+inOrb       = not na(orbTime)
+inTradeTime = not na(tradeTime)
+orbStarted  = inOrb and not inOrb[1]
+orbEnded    = not inOrb and inOrb[1]
+tradeEnded  = not inTradeTime and inTradeTime[1]
+newDay      = ta.change(time("D")) != 0
+
+// The strategy is designed for a 1-minute chart.
+isOneMinute = timeframe.isminutes and timeframe.multiplier == 1
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Opening-range construction and daily state
+// ─────────────────────────────────────────────────────────────────────────────
+
+var float orbHigh       = na
+var float orbLow        = na
+var bool  orbComplete   = false
+var int   tradesToday   = 0
+var float activeStop    = na
+var float activeTP1     = na
+var float activeTP2     = na
+var float activeEntry   = na
+var bool  tp1Reached    = false
+
+if newDay
+    orbHigh     := na
+    orbLow      := na
+    orbComplete := false
+    tradesToday := 0
+    activeStop  := na
+    activeTP1   := na
+    activeTP2   := na
+    activeEntry := na
+    tp1Reached  := false
+
+if orbStarted
+    orbHigh     := high
+    orbLow      := low
+    orbComplete := false
+
+if inOrb
+    orbHigh := na(orbHigh) ? high : math.max(orbHigh, high)
+    orbLow  := na(orbLow)  ? low  : math.min(orbLow, low)
+
+if orbEnded and not na(orbHigh) and not na(orbLow)
+    orbComplete := true
+
+orbRange = orbHigh - orbLow
+validOrb = orbComplete and not na(orbRange) and orbRange > syminfo.mintick
+canTrade = isOneMinute and validOrb and inTradeTime and strategy.position_size == 0 and
+     (not oneTradePerDay or tradesToday == 0)
+
+// A completed candle outside the range is the signal candle.
+longSignal  = canTrade and close > orbHigh
+shortSignal = canTrade and close < orbLow
+
+// Entry fills at the signal candle's close because process_orders_on_close=true.
+// The stop is fixed at that same signal candle's opposite wick.
+if longSignal
+    activeStop  := low
+    activeTP1   := orbHigh + orbRange * 0.50
+    activeTP2   := orbHigh + orbRange * 1.00
+    activeEntry := close
+    tp1Reached  := false
+    tradesToday += 1
+    strategy.entry("Long", strategy.long)
+
+if shortSignal
+    activeStop  := high
+    activeTP1   := orbLow - orbRange * 0.50
+    activeTP2   := orbLow - orbRange * 1.00
+    activeEntry := close
+    tp1Reached  := false
+    tradesToday += 1
+    strategy.entry("Short", strategy.short)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Position management
+// ─────────────────────────────────────────────────────────────────────────────
+
+if strategy.position_size > 0
+    if high >= activeTP1
+        tp1Reached := true
+    runnerStop = moveStopToBE and tp1Reached ? math.max(activeStop, activeEntry) : activeStop
+    strategy.exit("Long TP1", from_entry="Long", stop=activeStop, limit=activeTP1, qty_percent=50)
+    strategy.exit("Long TP2", from_entry="Long", stop=runnerStop, limit=activeTP2, qty_percent=100)
+
+if strategy.position_size < 0
+    if low <= activeTP1
+        tp1Reached := true
+    runnerStop = moveStopToBE and tp1Reached ? math.min(activeStop, activeEntry) : activeStop
+    strategy.exit("Short TP1", from_entry="Short", stop=activeStop, limit=activeTP1, qty_percent=50)
+    strategy.exit("Short TP2", from_entry="Short", stop=runnerStop, limit=activeTP2, qty_percent=100)
+
+if closeAtEnd and tradeEnded and strategy.position_size != 0
+    strategy.close_all(comment="End of trading window")
+
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    activeStop  := na
+    activeTP1   := na
+    activeTP2   := na
+    activeEntry := na
+    tp1Reached  := false
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Chart display
+// ─────────────────────────────────────────────────────────────────────────────
+
+orbHighPlot = plot(validOrb ? orbHigh : na, "ORB High", color=color.new(color.green, 0), linewidth=2, style=plot.style_linebr)
+orbLowPlot  = plot(validOrb ? orbLow : na, "ORB Low", color=color.new(color.red, 0), linewidth=2, style=plot.style_linebr)
+fill(orbHighPlot, orbLowPlot, color=color.new(color.teal, 88), title="ORB Range")
+
+plot(validOrb ? orbHigh + orbRange * 0.50 : na, "Long PT 50%", color=color.purple, linewidth=1, style=plot.style_linebr)
+plot(validOrb ? orbHigh + orbRange * 1.00 : na, "Long PT 100%", color=color.blue, linewidth=2, style=plot.style_linebr)
+plot(validOrb ? orbLow - orbRange * 0.50 : na, "Short PT 50%", color=color.purple, linewidth=1, style=plot.style_linebr)
+plot(validOrb ? orbLow - orbRange * 1.00 : na, "Short PT 100%", color=color.blue, linewidth=2, style=plot.style_linebr)
+
+plot(strategy.position_size != 0 ? activeStop : na, "Active Stop", color=color.orange, linewidth=2, style=plot.style_linebr)
+
+plotshape(showEntryMarkers and longSignal, title="Long signal", style=shape.triangleup,
+     location=location.belowbar, color=color.lime, size=size.small, text="LONG")
+plotshape(showEntryMarkers and shortSignal, title="Short signal", style=shape.triangledown,
+     location=location.abovebar, color=color.red, size=size.small, text="SHORT")
+
+bgcolor(not isOneMinute ? color.new(color.red, 88) : na, title="Wrong timeframe warning")
+
+if barstate.islast and not isOneMinute
+    label.new(bar_index, high, "Use this strategy on a 1-minute chart",
+         style=label.style_label_down, color=color.red, textcolor=color.white)

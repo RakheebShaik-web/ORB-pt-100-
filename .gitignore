@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Downloaded market data and generated backtest artifacts
+data/
+results/
+
+# Secrets and local editor files
+.env
+.env.*
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
