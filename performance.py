@@ -86,6 +86,9 @@ def write_report(path: Path, metrics: dict[str, Any], config: dict[str, Any], wa
     pf = "∞" if metrics["profit_factor"] is None and metrics["net_profit"] > 0 else (
         "N/A" if metrics["profit_factor"] is None else f'{metrics["profit_factor"]:.2f}'
     )
+    data_source = config.get("data", {}).get("source", "unknown")
+    feed = config.get("data", {}).get("alpaca_feed", "")
+    source_label = f"Alpaca {feed.upper()}" if data_source == "alpaca" else "Yahoo Finance"
     text = f"""# ORB 50% / 100% Backtest Report
 
 | Metric | Result |
@@ -108,7 +111,7 @@ def write_report(path: Path, metrics: dict[str, Any], config: dict[str, Any], wa
 - Targets: 50% and 100% of ORB range beyond the broken boundary.
 - Same-bar entry exits are prohibited; management begins on the next bar.
 - Intrabar stop/target ambiguity uses conservative stop-first ordering.
-- Yahoo bars are used as supplied; no quote-level spread or order-book model.
+- {source_label} bars are used as supplied; no quote-level spread or order-book model.
 - Configuration: `{json.dumps(config, sort_keys=True)}`
 
 ## Data warnings
@@ -120,4 +123,3 @@ def write_report(path: Path, metrics: dict[str, Any], config: dict[str, Any], wa
 {DISCLOSURE}
 """
     path.write_text(text, encoding="utf-8")
-

@@ -1,6 +1,7 @@
 yfinance>=0.2.54
+alpaca-py>=0.30.0
+python-dotenv>=1.0.0
 pandas>=2.0
 numpy>=1.24
 matplotlib>=3.7
 pytest>=8.0
-

@@ -1,12 +1,23 @@
-"""Configuration for the ORB 50% / 100% Yahoo Finance backtest."""
+"""Configuration for the ORB 50% / 100% historical backtest."""
+
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 CONFIG = {
     "symbols": ["QQQ"],
     "data": {
+        # Set DATA_SOURCE=alpaca or yahoo in .env.
+        "source": os.getenv("DATA_SOURCE", "alpaca").strip().lower(),
         "interval": "1m",
-        "period": "30d",
+        "period": os.getenv("BACKTEST_PERIOD", "30d").strip().lower(),
         "prepost": False,
         "auto_adjust": False,
+        "alpaca_feed": os.getenv("ALPACA_DATA_FEED", "iex").strip().lower(),
+        "alpaca_adjustment": os.getenv("ALPACA_ADJUSTMENT", "raw").strip().lower(),
         "cache_dir": "data/cache",
     },
     "session": {

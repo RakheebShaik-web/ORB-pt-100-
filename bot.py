@@ -52,7 +52,12 @@ def main() -> int:
     run_dir.mkdir(parents=True, exist_ok=False)
     all_trades: list[pd.DataFrame] = []
     all_warnings: list[str] = []
-    manifest: dict[str, object] = {"source": "Yahoo Finance via yfinance", "symbols": {}}
+    source_name = (
+        f"Alpaca Market Data ({config['data']['alpaca_feed'].upper()})"
+        if config["data"]["source"] == "alpaca"
+        else "Yahoo Finance via yfinance"
+    )
+    manifest: dict[str, object] = {"source": source_name, "symbols": {}}
 
     for symbol in config["symbols"]:
         print(f"Downloading/loading {symbol}...")

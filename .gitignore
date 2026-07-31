@@ -12,6 +12,7 @@ results/
 # Secrets and local editor files
 .env
 .env.*
+!.env.example
 .vscode/
 .idea/
 

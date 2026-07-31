@@ -1,6 +1,7 @@
-# ORB 50% / 100% Yahoo Finance Backtest
+# ORB 50% / 100% Historical Backtest
 
-Python backtester for the 1-minute opening-range breakout strategy.
+Python backtester for the 1-minute opening-range breakout strategy. Alpaca is
+the default historical source; Yahoo remains available as a fallback.
 
 ## Rules
 
@@ -26,10 +27,22 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
+Open `.env` and fill only:
+
+```text
+ALPACA_API_KEY=your_paper_key
+ALPACA_SECRET_KEY=your_paper_secret
+```
+
+The free feed is configured as `ALPACA_DATA_FEED=iex`. If your Alpaca account
+has SIP entitlement, change it to `sip` for consolidated US-market candles.
+
 ## Run
 
 ```powershell
 python bot.py
+python bot.py --period 60d --refresh
+python bot.py --period 90d --refresh
 python bot.py --symbols QQQ SPY AAPL --period 30d --refresh
 python bot.py --risk 10 --slippage-bps 2 --commission-per-share 0.005
 ```

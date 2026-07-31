@@ -1,9 +1,10 @@
-"""Yahoo Finance download, normalization, validation, and caching."""
+"""Alpaca/Yahoo historical download, normalization, validation, and caching."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 from typing import Any
@@ -56,12 +57,20 @@ def normalize_bars(frame: pd.DataFrame, symbol: str) -> pd.DataFrame:
     return frame
 
 
-def cache_path(cache_dir: str | Path, symbol: str, period: str, interval: str) -> Path:
+def cache_path(
+    cache_dir: str | Path,
+    symbol: str,
+    period: str,
+    interval: str,
+    source: str,
+    feed: str = "",
+) -> Path:
     safe_symbol = symbol.replace("^", "INDEX_").replace("/", "_")
-    return Path(cache_dir) / f"{safe_symbol}_{period}_{interval}.csv"
+    suffix = f"_{feed}" if feed else ""
+    return Path(cache_dir) / f"{source}_{safe_symbol}_{period}_{interval}{suffix}.csv"
 
 
-def download_bars(
+def download_yahoo_bars(
     symbol: str,
     *,
     period: str,
@@ -71,7 +80,7 @@ def download_bars(
     cache_dir: str | Path,
     refresh: bool = False,
 ) -> pd.DataFrame:
-    path = cache_path(cache_dir, symbol, period, interval)
+    path = cache_path(cache_dir, symbol, period, interval, "yahoo")
     if path.exists() and not refresh:
         cached = pd.read_csv(path, index_col="timestamp", parse_dates=["timestamp"])
         return normalize_bars(cached, symbol)
@@ -127,6 +136,112 @@ def download_bars(
     path.parent.mkdir(parents=True, exist_ok=True)
     bars.to_csv(path)
     return bars
+
+
+def download_alpaca_bars(
+    symbol: str,
+    *,
+    period: str,
+    interval: str,
+    feed: str,
+    adjustment: str,
+    cache_dir: str | Path,
+    refresh: bool = False,
+) -> pd.DataFrame:
+    try:
+        from alpaca.data.enums import Adjustment, DataFeed
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame
+    except ImportError as exc:
+        raise RuntimeError(
+            "alpaca-py is not installed. Run: python -m pip install -r requirements.txt"
+        ) from exc
+
+    key = os.getenv("ALPACA_API_KEY", "").strip()
+    secret = os.getenv("ALPACA_SECRET_KEY", "").strip()
+    if not key or not secret:
+        raise RuntimeError(
+            "Missing Alpaca credentials. Open .env and fill ALPACA_API_KEY and "
+            "ALPACA_SECRET_KEY."
+        )
+    period_match = re.fullmatch(r"(\d+)d", period.strip().lower())
+    if not period_match:
+        raise ValueError("Alpaca period must use days, for example 30d, 60d, or 90d")
+    if interval != "1m":
+        raise ValueError("This ORB backtester currently requires interval='1m'")
+    feed_map = {"iex": DataFeed.IEX, "sip": DataFeed.SIP}
+    if feed not in feed_map:
+        raise ValueError("ALPACA_DATA_FEED must be 'iex' or 'sip'")
+    adjustment_map = {
+        "raw": Adjustment.RAW,
+        "split": Adjustment.SPLIT,
+        "dividend": Adjustment.DIVIDEND,
+        "all": Adjustment.ALL,
+    }
+    if adjustment not in adjustment_map:
+        raise ValueError("ALPACA_ADJUSTMENT must be raw, split, dividend, or all")
+
+    path = cache_path(cache_dir, symbol, period, interval, "alpaca", feed)
+    if path.exists() and not refresh:
+        cached = pd.read_csv(path, index_col="timestamp", parse_dates=["timestamp"])
+        return normalize_bars(cached, symbol)
+
+    end = pd.Timestamp.now(tz="UTC")
+    start = end - pd.Timedelta(days=int(period_match.group(1)))
+    client = StockHistoricalDataClient(key, secret)
+    request = StockBarsRequest(
+        symbol_or_symbols=[symbol],
+        timeframe=TimeFrame.Minute,
+        start=start.to_pydatetime(),
+        end=end.to_pydatetime(),
+        feed=feed_map[feed],
+        adjustment=adjustment_map[adjustment],
+    )
+    raw = client.get_stock_bars(request).df
+    if isinstance(raw.index, pd.MultiIndex):
+        level = "symbol" if "symbol" in raw.index.names else 0
+        raw = raw.xs(symbol, level=level)
+    bars = normalize_bars(raw, symbol)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    bars.to_csv(path)
+    return bars
+
+
+def download_bars(
+    symbol: str,
+    *,
+    source: str,
+    period: str,
+    interval: str,
+    prepost: bool,
+    auto_adjust: bool,
+    alpaca_feed: str,
+    alpaca_adjustment: str,
+    cache_dir: str | Path,
+    refresh: bool = False,
+) -> pd.DataFrame:
+    if source == "alpaca":
+        return download_alpaca_bars(
+            symbol,
+            period=period,
+            interval=interval,
+            feed=alpaca_feed,
+            adjustment=alpaca_adjustment,
+            cache_dir=cache_dir,
+            refresh=refresh,
+        )
+    if source == "yahoo":
+        return download_yahoo_bars(
+            symbol,
+            period=period,
+            interval=interval,
+            prepost=prepost,
+            auto_adjust=auto_adjust,
+            cache_dir=cache_dir,
+            refresh=refresh,
+        )
+    raise ValueError("DATA_SOURCE must be 'alpaca' or 'yahoo'")
 
 
 def data_quality(bars: pd.DataFrame) -> dict[str, Any]:
