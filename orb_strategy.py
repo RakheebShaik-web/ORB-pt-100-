@@ -51,16 +51,35 @@ def commission(qty: float, per_share: float, minimum: float) -> float:
     return max(qty * per_share, minimum)
 
 
-def position_size(entry: float, stop: float, risk: dict[str, Any]) -> float:
-    distance = abs(entry - stop)
-    if distance <= 0:
+def position_size(entry: float, stop: float, side: str, risk: dict[str, Any]) -> float:
+    stop_fill = adverse_fill(stop, side, float(risk["slippage_bps"]), False)
+    loss_per_share = abs(entry - stop_fill)
+    if loss_per_share <= 0:
         return 0.0
-    risk_qty = float(risk["risk_per_trade_usd"]) / distance
+    risk_budget = float(risk["risk_per_trade_usd"])
+    risk_qty = risk_budget / loss_per_share
     notional_qty = float(risk["max_notional_per_trade"]) / entry
     qty = min(risk_qty, notional_qty)
-    if not risk["allow_fractional_shares"]:
-        qty = math.floor(qty)
-    return max(float(qty), 0.0)
+
+    def estimated_stop_loss(candidate: float) -> float:
+        entry_fee = commission(candidate, float(risk["commission_per_share"]), float(risk["minimum_commission"]))
+        exit_fee = commission(candidate, float(risk["commission_per_share"]), float(risk["minimum_commission"]))
+        return candidate * loss_per_share + entry_fee + exit_fee
+
+    if risk["allow_fractional_shares"]:
+        low, high = 0.0, max(qty, 0.0)
+        for _ in range(60):
+            midpoint = (low + high) / 2.0
+            if estimated_stop_loss(midpoint) <= risk_budget:
+                low = midpoint
+            else:
+                high = midpoint
+        return low
+
+    qty = math.floor(qty)
+    while qty > 0 and estimated_stop_loss(float(qty)) > risk_budget:
+        qty -= 1
+    return float(qty)
 
 
 def pnl_for_exit(position: Position, price: float, qty: float) -> float:
@@ -179,7 +198,7 @@ def backtest_symbol(
                     if (side == "long" and stop >= entry) or (side == "short" and stop <= entry):
                         warnings.append(f"{symbol} {timestamp}: skipped; invalid stop after slippage")
                         continue
-                    qty = position_size(entry, stop, risk)
+                    qty = position_size(entry, stop, side, risk)
                     if qty <= 0:
                         warnings.append(f"{symbol} {timestamp}: skipped; position size is zero")
                         continue
@@ -222,4 +241,3 @@ def backtest_symbol(
     if not trades.empty:
         trades = trades.sort_values(["entry_time", "symbol"]).reset_index(drop=True)
     return trades, warnings
-

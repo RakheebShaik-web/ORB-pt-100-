@@ -45,6 +45,24 @@ Each run creates a timestamped folder under `results/` containing:
 - `data_manifest.json`
 - `warnings.json`
 
+## Update the connected dashboard
+
+The dashboard repository is connected in `dashboard/`. After running one or
+more backtests, export the newest 30D/60D/90D results with:
+
+```powershell
+python dashboard_sync.py
+```
+
+Commit and push the generated `dashboard/data/backtests.json` from inside the
+dashboard repository when the metrics should be published.
+
+For a fresh checkout, include the dashboard repository with:
+
+```powershell
+git clone --recurse-submodules https://github.com/RakheebShaik-web/ORB-pt-100-.git
+```
+
 ## Tests
 
 ```powershell
